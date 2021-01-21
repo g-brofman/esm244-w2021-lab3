@@ -1,0 +1,145 @@
+---
+title: 'Part 1: binary logistic regression'
+author: "Grace Brofman"
+date: "1/21/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(palmerpenguins)
+library(GGally) # for pairs plots
+library(broom) # for tidy model outputs in dataframes
+library(jtools) # to make quick graphs of model outputs
+```
+
+```{r}
+
+penguins %>% 
+  select(species, bill_length_mm:sex) %>% 
+  ggpairs(aes(color = species)) # to make a pairs plot
+
+# we're looking specifically at adelie and chinstrap bc they tend to overlap in features
+# make subset only containing adelie and chinstrap (see levels(penguins$species))
+```
+
+create subset with only adelie and chinstrap
+```{r}
+adelie_chinstrap <- penguins %>% 
+  filter(species %in% c("Adelie", "Chinstrap")) %>% # agian, check (see levels(penguins$species)) and see that "Gentoo" still shows up as a factor level
+#factor_drop() will help us get rid of that
+  mutate(species = fct_drop(species)) #drops any factor levels for which there are no acutal observationa
+
+```
+
+Let's just do a dataviz of those 2 species:
+```{r}
+ggplot(data = adelie_chinstrap, 
+       aes(x = body_mass_g,
+           y = flipper_length_mm)) +
+  geom_point(aes(color = sex)) +
+  facet_wrap(~species)
+
+# see sexual dimorphism, looks like chinstraps tend to be a bit larger in flipper length
+# should look at more visualizations to understand differences between the species
+# can binomial logistic regression help us understand the relationship between several predicotr variables and the probablillty based on those variables that a penguin is adelie or chinstrap?
+```
+
+Binary logistic regression
+- body mass
+- flipper length
+- penguin sex
+
+```{r}
+adelie_chinstrap_blr <- glm(species ~ body_mass_g + flipper_length_mm + sex,#generalized linear model, species is the dependent variable
+                            data = adelie_chinstrap,
+                            family = "binomial") # what is that link on the left hand side? (log odds in this case)
+
+```
+
+Take a look at the outcomes:
+```{r}
+adelie_chinstrap_blr #tells intercept value and coefficients (here we see that female is reference level for sex bc it didnt show up)
+
+summary(adelie_chinstrap_blr) # gives more info (see that p-values show us that of the 3 variables, only flipper length is significantly non-zero- although doesnt necessarily mean we should drop the other variables)
+
+#take body mass coefficient( -8.6 x 10^-4)
+# type levels(adelie_chinstrap$species) into console to see reference levels, we see that Adelie is listed first- this means that Adelie is coded as 0 and chinstrap is coded as 1. so in our log linear expression, the left-hand side will be the probablity of chinstrap (the log odds of the non-zero level)
+# we expect on average that as body mass increases, the odds of it being a chinstrap are going down (the sign indicates this), although it's a very small coefficient compared to others (p value is nonsignificant)
+# flipper length coefficient - positive value indicates that increase in length means odds of chinstrap increases
+# sexmale: technically interpreted as compared to female level, if a penguin is male its less likely to be achinstrap (in this case its a bit nonsensical). also the p value is nonsignificant
+# does it make sense that as flipper lenght increase, the odds of being a chinstrap increase too? 
+# do some data viz!
+```
+
+```{r}
+ggplot(data = adelie_chinstrap,
+       aes(x = species,
+           y = flipper_length_mm)) +
+  geom_jitter(aes(color = sex))
+# yes, maybe chinstrap flipper length gets larger, it looks a little more likely that you're a chinstrap 
+```
+look at actual probabioilities using broom::augment()
+What are the actual probabilities of being Chinstrap for each of the existing observations in our adelie_chinstrap data frame?
+takes original data, adds a column with the probabilites that it is a chinstrap penguin
+```{r}
+blr_fitted <- adelie_chinstrap_blr %>% 
+  broom::augment(type.predict = "response") 
+
+# now added on to our original df, we can see a bunch of info added for our model outcomes
+# .fitted column is based on our blr, the prob based on 3 predictor variables, that our penguin is a chinstrap. we see that for most adelies, there's a less than 50% chance that it's a chinstrap penguin. probabilities tend to be higher that its a chinstrap when we're looking at chinstraps, but it still incorrectly characterizes them sometimes
+
+```
+
+Plotting fitted probabilities:
+```{r}
+ggplot(data = blr_fitted,
+       aes(x = flipper_length_mm,
+           y = .fitted)) +
+  geom_point(aes(color = sex, pch = species)) +
+  geom_smooth(aes(color = sex), se = FALSE) + # se refers to error ribbon
+  labs(x = "Flipper length (mm)",
+       y = "Probability of outcome Chinstrap")
+
+# we see an increasing probablility of chinstrap with increasing flipper length. we also see the diff based on sex
+# then we add point classifier for species. we thensee that there are plenty of adelies that are given higher than 50% chance of being a chinstrap. our model is not perfect
+
+```
+
+Plot model based on different variables:
+```{r}
+effect_plot(adelie_chinstrap_blr,
+            pred = flipper_length_mm, # pred = predictor variable
+            y.label = "Probability of Chistrap",
+            interval = TRUE)
+
+effect_plot(adelie_chinstrap_blr,
+            pred = body_mass_g, # pred = predictor variable
+            y.label = "Probability of Chistrap",
+            interval = TRUE)
+
+# effect plots are not as customizable, but give quick overviews of how your probability changes with respect to a model variable
+
+```
+
+What's the probability that a female penguin weighing 3410 g with a flipper length of 192 mm is a Chinstrap?
+
+```{r}
+ex_1 <- predict(adelie_chinstrap_blr,
+                data.frame(sex = "female",
+                           body_mass_g = 3410,
+                           flipper_length_mm = 192),#give it a df containing the values that you want to calculate this for (ours has 1 row but you can feed it multiple rows). we also have to make the variables match those for which the model was built e.g. "female", the reference level
+                type = "response") 
+
+ex_1 # this returns 0.402 which means that using the model we've created based on these characteristics of this hypothetical new penguin, there's a 40% chance that its a chinstrap penguin
+
+```
+
+
+
+
+
